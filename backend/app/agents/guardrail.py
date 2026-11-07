@@ -36,7 +36,7 @@ async def run_guardrail(payload: GuardrailInput) -> GuardrailOutput:
         reason = "That sounds like a mark-scheme dump. Please explain it in your own words."
     elif len(payload.text.split()) > 180 and payload.text.count(".") > 8 and not any(filler in lowered for filler in ("um", "uh", "i think")):
         verdict = "redirect"
-        reason = "This is very polished and long. Please teach the class in your own words."
+        reason = "This is very polished and long. Please teach Chud in your own words."
     result = GuardrailOutput(verdict=verdict, reason=reason)
     log_agent_call("guardrail", int((time.perf_counter() - started) * 1000), len(payload.text), verdict, reason)
     return result

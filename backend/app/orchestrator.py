@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 import uuid
@@ -15,7 +14,7 @@ from .agents.output_guard import OutputGuardInput, run_output_guard
 from .content import get_question, get_questions, get_reference, pack_concepts
 from .escalation import maybe_escalate
 from .metrics import speech_metrics
-from .models import Attempt, PipelineStage, Session, TeachResponse
+from .models import Attempt, BrainConcept, BrainView, PipelineStage, RememberedNote, Session, TeachResponse
 from .profiles import get_profile
 from .retention import recompute_knowledge, retained_notes_for
 from .session import save_session
@@ -55,11 +54,11 @@ class StageTimer:
             self.done()
 
 
-async def teach_turn(session: Session, stt_result: STTResult) -> TeachResponse:
+async def teach_turn(session: Session, stt_result: STTResult, source: str = "TYPED") -> TeachResponse:
     stages: list[PipelineStage] = []
     transcript = stt_result.text.strip()
     with StageTimer("STT", stages) as timer:
-        timer.done("ran", "typed input" if not stt_result.words else "audio transcribed")
+        timer.done("ran", source.lower())
 
     question = get_question(session.pack_id, session.current_question_id)
     with StageTimer("Input guardrail", stages) as timer:
@@ -69,74 +68,59 @@ async def teach_turn(session: Session, stt_result: STTResult) -> TeachResponse:
     if guard.verdict == "block":
         for name in PIPELINE_NAMES[2:]:
             stages.append(PipelineStage(name=name, status="skipped", detail="guardrail blocked"))
-        return TeachResponse(
-            transcript=transcript,
-            pipeline=stages,
-            notes_added=[],
-            replies=[],
-            knowledge=session.knowledge,
-            metrics=speech_metrics(transcript, stt_result.words),
-            mode=session.mode,
-        )
+        return _empty_teach_response(session, transcript, stages, stt_result)
     if guard.verdict == "redirect":
-        session.transcript.append({"role": "system", "speaker": "guardrail", "text": guard.reason, "timestamp": time.time()})
+        reply_text = "Can you say that in your own words?"
+        audio_url = await _speak(reply_text)
+        session.transcript.append({"role": "chud", "speaker": "Chud", "chud_id": session.chud_id, "text": reply_text, "timestamp": time.time(), "emotion": "CURIOUS"})
         save_session(session)
-        for name in PIPELINE_NAMES[2:]:
+        for name in PIPELINE_NAMES[2:7]:
             stages.append(PipelineStage(name=name, status="skipped", detail="guardrail redirected"))
+        stages.append(PipelineStage(name="TTS", status="ran", detail="redirect reply"))
+        stages.append(PipelineStage(name="Escalation check", status="skipped", detail="no committed segment"))
         return TeachResponse(
             transcript=transcript,
             pipeline=stages,
             notes_added=[],
-            replies=[{"chud_id": "system", "text": guard.reason, "audio_url": ""}],
+            reply_text=reply_text,
+            reply_audio_url=audio_url,
+            emotion="CURIOUS",
             knowledge=session.knowledge,
             metrics=speech_metrics(transcript, stt_result.words),
             mode=session.mode,
         )
 
     session.turn += 1
-    session.transcript.append({"role": "teacher", "speaker": "Teacher", "text": transcript, "timestamp": time.time()})
+    session.transcript.append({"role": "teacher", "speaker": "Teacher", "text": transcript, "timestamp": time.time(), "source": source})
 
     with StageTimer("Extractor", stages) as timer:
         extracted = await run_extractor(ExtractorInput(text=transcript, turn=session.turn, pack_concepts=pack_concepts(session.pack_id)))
         timer.done("ran", f"{len(extracted.notes)} notes")
 
     with StageTimer("FactChecker", stages) as timer:
-        checked = await run_factchecker(
-            FactCheckerInput(notes=extracted.notes, reference=get_reference(session.pack_id), mark_points=question.mark_points)
-        )
+        checked = await run_factchecker(FactCheckerInput(notes=extracted.notes, reference=get_reference(session.pack_id), mark_points=question.mark_points))
         notes = apply_checks(extracted.notes, checked.checks)
         timer.done("ran", f"{len(checked.checks)} checks")
 
     session.notes.extend(notes)
     with StageTimer("Retention", stages) as timer:
-        session.knowledge = recompute_knowledge(session.id, session.chud_ids, session.notes, session.turn)
+        session.knowledge = recompute_knowledge(session.id, session.notes, session.turn)
         timer.done("ran", "knowledge updated")
 
-    selected = _select_chuds(session, notes)
-    raw_replies = []
+    profile = get_profile(session.chud_id)
+    retained = retained_notes_for(session.notes, session.knowledge)
     with StageTimer("Chud response", stages) as timer:
-        for chud_id in selected:
-            profile = get_profile(chud_id)
-            retained = retained_notes_for(chud_id, session.notes, session.knowledge)
-            raw_replies.append(await run_chud(ChudInput(profile=profile, retained_notes=retained, recent_transcript=session.transcript)))
-        timer.done("ran", ",".join(selected))
+        raw = await run_chud(ChudInput(profile=profile, retained_notes=retained, recent_transcript=session.transcript, mode="ask"))
+        timer.done("ran", raw.emotion)
 
-    guarded_replies = []
     with StageTimer("Output guardrail", stages) as timer:
-        for reply in raw_replies:
-            retained = retained_notes_for(reply.chud_id, session.notes, session.knowledge)
-            guarded = await run_output_guard(OutputGuardInput(text=reply.text, notes=retained))
-            guarded_replies.append({"chud_id": reply.chud_id, "text": guarded.text})
+        guarded = await run_output_guard(OutputGuardInput(text=raw.text, notes=retained))
         timer.done("ran")
 
-    replies = []
     with StageTimer("TTS", stages) as timer:
-        for reply in guarded_replies:
-            profile = get_profile(reply["chud_id"])
-            audio_url = await synthesize_speech(reply["text"], os.getenv(profile.voice_id_env), reply["chud_id"])
-            replies.append({**reply, "audio_url": audio_url})
-            session.transcript.append({"role": "chud", "speaker": profile.name, "chud_id": profile.id, "text": reply["text"], "timestamp": time.time()})
-        timer.done("ran", f"{len(replies)} clips")
+        audio_url = await _speak(guarded.text)
+        session.transcript.append({"role": "chud", "speaker": profile.name, "chud_id": profile.id, "text": guarded.text, "timestamp": time.time(), "emotion": raw.emotion})
+        timer.done("ran", "1 clip")
 
     metrics = speech_metrics(transcript, stt_result.words)
     session.metrics = metrics
@@ -148,7 +132,9 @@ async def teach_turn(session: Session, stt_result: STTResult) -> TeachResponse:
         transcript=transcript,
         pipeline=stages,
         notes_added=notes,
-        replies=replies,
+        reply_text=guarded.text,
+        reply_audio_url=audio_url,
+        emotion=raw.emotion,
         knowledge=session.knowledge,
         metrics=metrics,
         mode=session.mode,
@@ -156,56 +142,45 @@ async def teach_turn(session: Session, stt_result: STTResult) -> TeachResponse:
 
 
 async def run_test(session: Session, question_id: str | None = None) -> dict:
-    if session.mode not in ("TEACH", "RETEACH", "REVIEW"):
-        pass
     if session.mode in ("TEACH", "RETEACH"):
         http_transition(session, "TEST", "teacher_requested_test")
     question = get_question(session.pack_id, question_id or session.current_question_id)
     session.current_question_id = question.id
-    session.knowledge = recompute_knowledge(session.id, session.chud_ids, session.notes, session.turn)
+    session.knowledge = recompute_knowledge(session.id, session.notes, session.turn)
     round_no = max([attempt.round for attempt in session.attempts if attempt.question_id == question.id], default=0) + 1
-
-    async def attempt_for(chud_id: str) -> Attempt:
-        profile = get_profile(chud_id)
-        retained = retained_notes_for(chud_id, session.notes, session.knowledge)
-        answer = await run_test_taker(ChudTestInput(profile=profile, question=question, retained_notes=retained))
-        marked = await run_examiner(ExaminerInput(question=question, answer=answer.answer))
-        return Attempt(
-            id=str(uuid.uuid4()),
-            question_id=question.id,
-            chud_id=chud_id,
-            answer=answer.answer,
-            marks=marked.marks,
-            score=marked.total_score,
-            max_score=question.marks,
-            round=round_no,
-        )
-
-    attempts = await asyncio.gather(*(attempt_for(chud_id) for chud_id in session.chud_ids))
-    session.attempts.extend(attempts)
+    profile = get_profile(session.chud_id)
+    retained = retained_notes_for(session.notes, session.knowledge)
+    answer = await run_test_taker(ChudTestInput(profile=profile, question=question, retained_notes=retained))
+    marked = await run_examiner(ExaminerInput(question=question, answer=answer.answer))
+    attempt = Attempt(
+        id=str(uuid.uuid4()),
+        question_id=question.id,
+        chud_id=session.chud_id,
+        answer=answer.answer,
+        marks=marked.marks,
+        score=marked.total_score,
+        max_score=question.marks,
+        round=round_no,
+    )
+    session.attempts.append(attempt)
     if session.mode == "TEST":
-        http_transition(session, "REVIEW", "all_attempts_graded")
-    coach = await run_coach(CoachInput(attempts=attempts, question=question, transcript=session.transcript, notes=session.notes, knowledge=session.knowledge))
-    summary = {
-        "round": round_no,
-        "average": round(sum(attempt.score for attempt in attempts) / max(len(attempts), 1), 2),
-        "max_score": question.marks,
-        "full_marks": all(attempt.score == attempt.max_score for attempt in attempts),
-    }
-    feedback = {**coach.model_dump(), "question_id": question.id, "class_summary": summary}
-    session.feedback.append(feedback)
+        http_transition(session, "REVIEW", "attempt_graded")
+    coach = await run_coach(CoachInput(attempt=attempt, question=question, transcript=session.transcript, notes=session.notes, knowledge=session.knowledge))
+    summary = {"round": round_no, "average": attempt.score, "max_score": question.marks, "full_marks": attempt.score == attempt.max_score}
+    session.feedback.append({**coach.model_dump(), "question_id": question.id, "class_summary": summary})
     maybe_escalate(session)
     save_session(session)
-    return {"question": question, "attempts": attempts, "class_summary": summary}
+    return {"question": question, "attempt": attempt, "class_summary": summary}
 
 
 async def review(session: Session) -> dict:
     if not session.feedback:
         question = get_question(session.pack_id, session.current_question_id)
-        attempts = [attempt for attempt in session.attempts if attempt.question_id == question.id]
-        coach = await run_coach(CoachInput(attempts=attempts, question=question, transcript=session.transcript, notes=session.notes, knowledge=session.knowledge))
-        feedback = {**coach.model_dump(), "question_id": question.id}
-        session.feedback.append(feedback)
+        attempt = next((item for item in reversed(session.attempts) if item.question_id == question.id), None)
+        if attempt is None:
+            return {"gaps": [], "reteach_suggestions": [], "diagnosis": []}
+        coach = await run_coach(CoachInput(attempt=attempt, question=question, transcript=session.transcript, notes=session.notes, knowledge=session.knowledge))
+        session.feedback.append({**coach.model_dump(), "question_id": question.id})
         save_session(session)
     return session.feedback[-1]
 
@@ -216,21 +191,70 @@ def begin_reteach(session: Session) -> dict:
     if session.mode == "RETEACH":
         http_transition(session, "TEACH", "reteach_ready")
     save_session(session)
-    return {"mode": session.mode, "prompt": "Re-teach the missed concepts with a reason, an example, and one repeat."}
+    return {"mode": session.mode, "prompt": "Teach the missed idea again with a reason, a concrete example, and one repeat."}
 
 
-def _select_chuds(session: Session, notes) -> list[str]:
-    if not notes:
-        return session.chud_ids[:1]
-    scores = []
-    note_ids = [note.id for note in notes]
-    for chud_id in session.chud_ids:
-        knowledge = session.knowledge[chud_id]
-        note_scores = [knowledge.retention_scores.get(note_id, 1.0) for note_id in note_ids]
-        scores.append((sum(note_scores) / len(note_scores), chud_id))
-    scores.sort()
-    selected = [scores[0][1]]
-    if session.turn % 3 == 0 and len(scores) > 1:
-        selected.append(scores[1][1])
-    return selected
+async def recap(session: Session) -> dict:
+    profile = get_profile(session.chud_id)
+    retained = retained_notes_for(session.notes, session.knowledge)
+    reply = await run_chud(ChudInput(profile=profile, retained_notes=retained, recent_transcript=session.transcript, mode="recap"))
+    audio_url = await _speak(reply.text)
+    session.transcript.append({"role": "chud", "speaker": profile.name, "chud_id": profile.id, "text": reply.text, "timestamp": time.time(), "emotion": reply.emotion, "mode": "recap"})
+    save_session(session)
+    return {"reply_text": reply.text, "reply_audio_url": audio_url, "emotion": reply.emotion}
 
+
+def brain_view(session: Session) -> BrainView:
+    profile = get_profile(session.chud_id)
+    retained = set(session.knowledge.retained_note_ids)
+    remembered = [
+        RememberedNote(
+            note=note,
+            retained=note.id in retained,
+            retention=session.knowledge.retention_scores.get(note.id, 0),
+            reason=session.knowledge.explanations.get(note.concept or "", "No concept-specific retention reason."),
+        )
+        for note in session.notes
+    ]
+    concepts = sorted({concept for question in get_questions(session.pack_id) for concept in question.concepts})
+    coverage = []
+    for concept in concepts:
+        concept_notes = [note for note in session.notes if note.concept == concept]
+        remembered_notes = [note for note in concept_notes if note.id in retained]
+        if not concept_notes:
+            status = "UNTAUGHT"
+        elif not any(note.status == "correct" for note in remembered_notes) or any(note.status == "incorrect" for note in remembered_notes):
+            status = "SHAKY"
+        else:
+            status = "SOLID"
+        coverage.append(BrainConcept(concept_id=concept, name=concept.replace("_", " "), status=status))
+    solid = sum(1 for item in coverage if item.status == "SOLID")
+    last = session.attempts[-1] if session.attempts else None
+    return BrainView(
+        chud=profile,
+        notes=remembered,
+        coverage=coverage,
+        understanding=round(solid / max(len(coverage), 1), 3),
+        last_score={"score": last.score, "max": last.max_score} if last else None,
+        show_correctness=bool(session.feedback),
+    )
+
+
+async def _speak(text: str) -> str:
+    profile = get_profile()
+    voice_id = os.getenv("ELEVENLABS_VOICE_CHUD", profile.voice_id)
+    return await synthesize_speech(text, voice_id, profile.id)
+
+
+def _empty_teach_response(session: Session, transcript: str, stages: list[PipelineStage], stt_result: STTResult) -> TeachResponse:
+    return TeachResponse(
+        transcript=transcript,
+        pipeline=stages,
+        notes_added=[],
+        reply_text="",
+        reply_audio_url="",
+        emotion="NEUTRAL",
+        knowledge=session.knowledge,
+        metrics=speech_metrics(transcript, stt_result.words),
+        mode=session.mode,
+    )

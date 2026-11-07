@@ -24,7 +24,7 @@ async def synthesize_speech(text: str, voice_id: str | None, chud_id: str) -> st
     api_key = env("ELEVENLABS_API_KEY")
     model = env("ELEVENLABS_TTS_MODEL", "eleven_flash_v2_5")
     output_format = env("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128")
-    resolved_voice = voice_id or "JBFqnCBsd6RMkjVDRZzb"
+    resolved_voice = voice_id or env("ELEVENLABS_VOICE_CHUD", "JBFqnCBsd6RMkjVDRZzb")
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(
             f"https://api.elevenlabs.io/v1/text-to-speech/{resolved_voice}",

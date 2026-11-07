@@ -2,28 +2,24 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any
 
 from .content import get_question
 from .models import ChudKnowledge, Escalation, Session
-from .profiles import list_profiles
 
 
 SESSIONS: dict[str, Session] = {}
 ESCALATIONS: dict[str, Escalation] = {}
 
 
-def create_session(pack_id: str, chud_ids: list[str] | None = None) -> Session:
-    if chud_ids is None:
-        chud_ids = [profile.id for profile in list_profiles()]
+def create_session(pack_id: str, chud_id: str = "chud") -> Session:
     session_id = str(uuid.uuid4())
     question = get_question(pack_id)
     session = Session(
         id=session_id,
         pack_id=pack_id,
-        chud_ids=chud_ids,
+        chud_id=chud_id,
         current_question_id=question.id,
-        knowledge={cid: ChudKnowledge(chud_id=cid) for cid in chud_ids},
+        knowledge=ChudKnowledge(chud_id=chud_id),
         transitions=[
             {
                 "from": None,
@@ -66,4 +62,3 @@ def list_open_escalations() -> list[Escalation]:
 def reset_store() -> None:
     SESSIONS.clear()
     ESCALATIONS.clear()
-

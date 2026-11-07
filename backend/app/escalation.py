@@ -8,29 +8,25 @@ from .session import add_escalation
 from .state import transition
 
 
-def _majority_missed_by_round(session: Session) -> list[str]:
-    by_round: dict[int, dict[str, list[bool]]] = defaultdict(lambda: defaultdict(list))
+def _repeated_single_miss(session: Session) -> list[str]:
+    by_question: dict[str, dict[int, set[str]]] = defaultdict(lambda: defaultdict(set))
     for attempt in session.attempts:
         for mark in attempt.marks:
-            by_round[attempt.round][mark.mark_point_id].append(mark.awarded)
-    missed_majority: list[str] = []
-    rounds = sorted(by_round)
-    if len(rounds) < 2:
-        return []
-    last_two = rounds[-2:]
-    for mark_point in by_round[last_two[0]]:
-        first = by_round[last_two[0]][mark_point]
-        second = by_round[last_two[1]].get(mark_point, [])
-        if first and second and sum(not item for item in first) > len(first) / 2 and sum(not item for item in second) > len(second) / 2:
-            missed_majority.append(mark_point)
-    return missed_majority
+            if not mark.awarded:
+                by_question[attempt.question_id][attempt.round].add(mark.mark_point_id)
+    repeated: list[str] = []
+    for rounds in by_question.values():
+        ordered = sorted(rounds)
+        for first, second in zip(ordered, ordered[1:]):
+            repeated.extend(sorted(rounds[first] & rounds[second]))
+    return sorted(set(repeated))
 
 
 def maybe_escalate(session: Session) -> Escalation | None:
     if session.mode == "ESCALATED":
         return None
     incorrect_notes = [note for note in session.notes if note.status == "incorrect"]
-    failed = _majority_missed_by_round(session)
+    failed = _repeated_single_miss(session)
     if len(incorrect_notes) < 3 and not failed:
         return None
     concept_counts = Counter(note.concept or "unknown" for note in incorrect_notes)
@@ -40,7 +36,7 @@ def maybe_escalate(session: Session) -> Escalation | None:
         id=str(uuid.uuid4()),
         session_id=session.id,
         stuck_concept=stuck,
-        summary=f"Class is stuck on {stuck}. Incorrect notes: {len(incorrect_notes)}. Repeated missed marks: {', '.join(failed) or 'none'}.",
+        summary=f"Chud is stuck on {stuck}. Incorrect notes: {len(incorrect_notes)}. Repeated missed marks: {', '.join(failed) or 'none'}.",
         excerpts=excerpts,
         failed_mark_points=failed,
     )
@@ -70,6 +66,6 @@ def tutor_note_from_reply(session: Session, hint: str) -> Note:
             "is_procedural_step": "then" in hint.lower() or "step" in hint.lower(),
             "step_index": 0,
             "word_count": len(hint.split()),
+            "method": "DEFINITION",
         },
     )
-

@@ -1,6 +1,9 @@
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
 export type Mode = "TEACH" | "TEST" | "REVIEW" | "RETEACH" | "ESCALATED" | "FINISHED";
+export type Emotion = "NEUTRAL" | "CURIOUS" | "CONFUSED" | "HAPPY" | "THINKING";
+export type NoteStatus = "correct" | "incorrect" | "unsupported" | "pending";
+export type TeachingMethod = "DEFINITION" | "ANALOGY" | "WORKED_EXAMPLE" | "DIAGRAM" | "STEP_BY_STEP";
 
 export type MarkPoint = { id: string; text: string; concept: string };
 export type Question = {
@@ -17,23 +20,27 @@ export type Pack = {
   topic: string;
   exam_board_credit: string;
   reference_summary: string;
-  sample_content_notice: string;
+  prototype_content_notice: string;
 };
-export type Profile = {
+export type ChudProfile = {
   id: string;
   name: string;
+  voice_id: string;
   avatar: string;
-  description: string;
-  questioning_style: string;
+  method_weights: Record<TeachingMethod, number>;
+  attention_span: number;
+  question_style: string;
+  persona: string;
+  base_rate: number;
 };
 export type Note = {
   id: string;
   text: string;
   turn: number;
   concept: string | null;
-  status: "correct" | "incorrect" | "unsupported" | "pending";
+  status: NoteStatus;
   source: "teacher" | "tutor";
-  features: Record<string, boolean | number>;
+  features: Record<string, boolean | number | string>;
 };
 export type Knowledge = {
   chud_id: string;
@@ -57,11 +64,11 @@ export type Session = {
   id: string;
   pack_id: string;
   mode: Mode;
-  chud_ids: string[];
+  chud_id: string;
   current_question_id: string | null;
   turn: number;
   notes: Note[];
-  knowledge: Record<string, Knowledge>;
+  knowledge: Knowledge;
   transcript: Array<Record<string, unknown>>;
   attempts: Attempt[];
   feedback: Array<Record<string, unknown>>;
@@ -79,10 +86,20 @@ export type TeachResponse = {
   transcript: string;
   pipeline: PipelineStage[];
   notes_added: Note[];
-  replies: Array<{ chud_id: string; text: string; audio_url: string }>;
-  knowledge: Record<string, Knowledge>;
+  reply_text: string;
+  reply_audio_url: string;
+  emotion: Emotion;
+  knowledge: Knowledge;
   metrics: Record<string, unknown>;
   mode: Mode;
+};
+export type BrainView = {
+  chud: ChudProfile;
+  notes: Array<{ note: Note; retained: boolean; retention: number; reason: string }>;
+  coverage: Array<{ concept_id: string; name: string; status: "UNTAUGHT" | "SHAKY" | "SOLID" }>;
+  understanding: number;
+  last_score: { score: number; max: number } | null;
+  show_correctness: boolean;
 };
 export type Escalation = {
   id: string;
@@ -94,6 +111,7 @@ export type Escalation = {
   failed_mark_points: string[];
   tutor_reply: string | null;
 };
+export type SttResponse = { text: string; words: Array<Record<string, unknown>>; duration_ms: number };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -111,30 +129,33 @@ export const api = {
   health: () => request<{ ok: boolean; mock_mode: boolean }>("/api/health"),
   packs: () => request<{ packs: Pack[] }>("/api/packs"),
   questions: (packId: string) => request<{ questions: Question[] }>(`/api/packs/${packId}/questions`),
-  profiles: () => request<{ profiles: Profile[] }>("/api/profiles"),
-  createSession: (pack_id: string, chud_ids?: string[]) =>
-    request<{ session: Session; intro_lines: Array<{ chud_id: string; text: string; audio_url: string }> }>("/api/session", {
+  chud: () => request<{ chud: ChudProfile }>("/api/chud"),
+  createSession: (pack_id: string) =>
+    request<{ session: Session; intro_line: { text: string; audio_url: string; emotion: Emotion } }>("/api/sessions", {
       method: "POST",
-      body: JSON.stringify({ pack_id, chud_ids }),
+      body: JSON.stringify({ pack_id }),
     }),
-  getSession: (id: string) => request<{ session: Session }>(`/api/session/${id}`),
-  teachText: (id: string, text: string) =>
-    request<TeachResponse>(`/api/session/${id}/teach`, {
-      method: "POST",
-      body: JSON.stringify({ text }),
-    }),
-  teachAudio: (id: string, blob: Blob) => {
+  getSession: (id: string) => request<{ session: Session }>(`/api/sessions/${id}`),
+  stt: (blob: Blob, mime = "audio/webm") => {
     const form = new FormData();
-    form.append("audio", blob, "teacher.webm");
-    return request<TeachResponse>(`/api/session/${id}/teach`, { method: "POST", body: form });
+    form.append("audio", blob, "phrase.webm");
+    form.append("mime", mime);
+    return request<SttResponse>("/api/stt", { method: "POST", body: form });
   },
-  testClass: (id: string, question_id?: string) =>
-    request<{ question: Question; attempts: Attempt[]; class_summary: Record<string, unknown> }>(`/api/session/${id}/test`, {
+  teachSegment: (id: string, text: string, source: "VOICE" | "TYPED", words: Array<Record<string, unknown>> = []) =>
+    request<TeachResponse>(`/api/sessions/${id}/teach`, {
+      method: "POST",
+      body: JSON.stringify({ text, source, words }),
+    }),
+  testChud: (id: string, question_id?: string) =>
+    request<{ question: Question; attempt: Attempt; class_summary: Record<string, unknown> }>(`/api/sessions/${id}/test`, {
       method: "POST",
       body: JSON.stringify({ question_id }),
     }),
-  review: (id: string) => request<Record<string, unknown>>(`/api/session/${id}/review`),
-  reteach: (id: string) => request<{ mode: Mode; prompt: string }>(`/api/session/${id}/reteach`, { method: "POST" }),
+  review: (id: string) => request<Record<string, unknown>>(`/api/sessions/${id}/review`),
+  reteach: (id: string) => request<{ mode: Mode; prompt: string }>(`/api/sessions/${id}/reteach`, { method: "POST" }),
+  recap: (id: string) => request<{ reply_text: string; reply_audio_url: string; emotion: Emotion }>(`/api/sessions/${id}/chud/recap`, { method: "POST" }),
+  brain: (id: string) => request<BrainView>(`/api/sessions/${id}/brain`),
   ingest: (paper: File, markScheme: File, packId = "alevel-cs-algorithms") => {
     const form = new FormData();
     form.append("paper", paper);
@@ -155,4 +176,3 @@ export const api = {
     }),
   audioUrl: (path: string) => (path.startsWith("http") ? path : `${API_BASE}${path}`),
 };
-

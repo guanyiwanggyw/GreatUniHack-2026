@@ -81,9 +81,18 @@ def detect_concept(text: str, allowed: list[str]) -> str | None:
     return None
 
 
-def features_for(text: str, step_index: int = 0) -> dict[str, bool | int]:
+def features_for(text: str, step_index: int = 0) -> dict[str, bool | int | str]:
     lowered = text.lower()
     procedural = any(word in lowered for word in ("first", "then", "next", "after", "repeat", "step", "finally"))
+    method = "DEFINITION"
+    if any(word in lowered for word in ("for example", "e.g.", "such as")) or re.search(r"\d|\[", lowered):
+        method = "WORKED_EXAMPLE"
+    elif any(word in lowered for word in ("like", "similar to", "imagine")):
+        method = "ANALOGY"
+    elif any(word in lowered for word in ("draw", "diagram", "arrow", "picture")):
+        method = "DIAGRAM"
+    elif procedural:
+        method = "STEP_BY_STEP"
     return {
         "has_reason": any(word in lowered for word in ("because", "so that", "therefore", "why", "means that")),
         "has_example": bool(re.search(r"\d|\[|for example|e\.g\.", lowered)),
@@ -91,5 +100,6 @@ def features_for(text: str, step_index: int = 0) -> dict[str, bool | int]:
         "is_procedural_step": procedural,
         "step_index": step_index if procedural else 0,
         "word_count": len(text.split()),
+        "method": method,
     }
 

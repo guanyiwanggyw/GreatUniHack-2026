@@ -16,23 +16,21 @@ def test_escalation_incorrect_notes():
     assert session.mode == "ESCALATED"
 
 
-def test_escalation_repeated_majority_miss():
+def test_escalation_repeated_mark_missed_two_rounds():
     reset_store()
     session = create_session("alevel-cs-algorithms")
+    qid = session.current_question_id or "q"
     for round_no in (1, 2):
-        for chud in session.chud_ids:
-            session.attempts.append(
-                Attempt(
-                    id=f"{round_no}-{chud}",
-                    question_id="q1",
-                    chud_id=chud,
-                    answer="",
-                    marks=[MarkResult(mark_point_id="q1m1", awarded=False, reason="missing")],
-                    score=0,
-                    max_score=4,
-                    round=round_no,
-                )
+        session.attempts.append(
+            Attempt(
+                id=f"{round_no}-chud",
+                question_id=qid,
+                answer="",
+                marks=[MarkResult(mark_point_id="m1", awarded=False, reason="missing")],
+                score=0,
+                max_score=4,
+                round=round_no,
             )
+        )
     esc = maybe_escalate(session)
     assert esc is not None
-

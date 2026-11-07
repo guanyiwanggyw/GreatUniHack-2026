@@ -1,4 +1,4 @@
-.PHONY: dev backend frontend test eval
+.PHONY: dev backend frontend test eval check
 
 dev:
 	cd backend && python -m uvicorn app.main:app --reload --port 8000 & cd frontend && npm run dev -- --host 127.0.0.1
@@ -14,4 +14,8 @@ test:
 
 eval:
 	cd backend && python -m eval.run_eval
+
+check:
+	cd backend && pytest
+	cd frontend && npm run build
 

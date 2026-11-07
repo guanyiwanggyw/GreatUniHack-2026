@@ -1,8 +1,8 @@
 # Teach-Chud
 
-Teach-Chud is a hackathon prototype where a human teaches a class of AI students ("chuds"). The chuds only answer from notes extracted from the human's teaching, then an examiner marks their answers against a sample mark scheme.
+Teach-Chud is a hackathon prototype where a human teaches one AI student, Chud, at a whiteboard. Chud only answers from remembered notes extracted from committed teaching segments.
 
-The default setup runs in `MOCK_MODE=1`, so the full demo works without API keys.
+The default setup runs in `MOCK_MODE=1`, so the demo works without API keys.
 
 ## Run
 
@@ -14,7 +14,7 @@ cd frontend && npm install && cd ..
 make dev
 ```
 
-Backend: `http://127.0.0.1:8000`  
+Backend: `http://127.0.0.1:8000`
 Frontend: `http://127.0.0.1:5173`
 
 On Windows without `make`, run two terminals:
@@ -29,19 +29,24 @@ cd frontend
 npm run dev -- --host 127.0.0.1
 ```
 
+## Behaviour
+
+- The teacher talks or types naturally.
+- Phrase audio is transcribed through `POST /api/stt`.
+- A segment is committed by silence, the Done button, or typed submit.
+- Guardrail, Extractor, FactChecker, retention, Chud, output guardrail and TTS run after each committed segment.
+- Chud can recap remembered notes from the brain drawer.
+- Testing returns one answer, one marked attempt and Coach diagnostics.
+
 ## Environment
 
 Copy `.env.example` to `.env` and set real keys only when needed. Do not commit `.env`.
 
-Every LLM request goes through `backend/app/llm.py::llm`. ElevenLabs STT/TTS are wrapped in `backend/app/stt.py` and `backend/app/tts.py`. Voice model IDs and voice IDs are environment-configurable.
-
-## Learner Profile Framing
-
-Sam, Priya, Leo, Mia and Ollie are learner profiles such as "needs reasons", "needs examples", or "short attention". They are not VARK-style learning styles, which should not be used as an evidence claim in the pitch.
+Every LLM request goes through `backend/app/llm.py::llm`. ElevenLabs STT/TTS are wrapped in `backend/app/stt.py` and `backend/app/tts.py`.
 
 ## Content
 
-The included A-level Computer Science algorithms pack is sample content written for the prototype. Replace it with real past-paper questions before a public educational deployment, and credit the relevant exam board.
+The included A-level Computer Science algorithms pack is prototype content written for the prototype. Replace it with real past-paper questions before a formal educational deployment, and credit the relevant exam board.
 
 ## Test And Eval
 
@@ -49,6 +54,3 @@ The included A-level Computer Science algorithms pack is sample content written 
 make test
 make eval
 ```
-
-The eval writes `docs/eval_results.md` and is designed to show good teaching scoring above vague teaching, which scores above confidently wrong teaching.
-

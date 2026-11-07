@@ -15,7 +15,7 @@ DOCS = ROOT / "docs"
 
 
 async def run() -> str:
-    rows = ["| script | question | chud | score | incorrect notes |", "|---|---|---|---:|---:|"]
+    rows = ["| script | question | student | score | incorrect notes |", "|---|---|---|---:|---:|"]
     averages: dict[str, list[float]] = {}
     for script_name in ("good", "vague", "wrong"):
         text = (SCRIPTS / f"{script_name}.txt").read_text(encoding="utf-8")
@@ -27,13 +27,13 @@ async def run() -> str:
         incorrect = sum(1 for note in session.notes if note.status == "incorrect")
         for question in get_questions(session.pack_id):
             result = await run_test(session, question.id)
-            for attempt in result["attempts"]:
-                rows.append(f"| {script_name} | {question.id} | {attempt.chud_id} | {attempt.score}/{attempt.max_score} | {incorrect} |")
-                averages.setdefault(script_name, []).append(attempt.score / attempt.max_score)
+            attempt = result["attempt"]
+            rows.append(f"| {script_name} | {question.id} | {attempt.chud_id} | {attempt.score}/{attempt.max_score} | {incorrect} |")
+            averages.setdefault(script_name, []).append(attempt.score / attempt.max_score)
             session.mode = "TEACH"
     summary = ["", "## Summary", ""]
     for name, values in averages.items():
-        summary.append(f"- {name}: {sum(values) / len(values):.2%} class average")
+        summary.append(f"- {name}: {sum(values) / len(values):.2%} Chud average")
     output = "# Eval Results\n\n" + "\n".join(rows + summary) + "\n"
     DOCS.mkdir(exist_ok=True)
     (DOCS / "eval_results.md").write_text(output, encoding="utf-8")

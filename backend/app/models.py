@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 
 
 Mode = Literal["TEACH", "TEST", "REVIEW", "RETEACH", "ESCALATED", "FINISHED"]
+Emotion = Literal["NEUTRAL", "CURIOUS", "CONFUSED", "HAPPY", "THINKING"]
+NoteStatus = Literal["correct", "incorrect", "unsupported", "pending"]
+TeachingMethod = Literal["DEFINITION", "ANALOGY", "WORKED_EXAMPLE", "DIAGRAM", "STEP_BY_STEP"]
 
 
 class MarkPoint(BaseModel):
@@ -29,7 +32,7 @@ class ContentPack(BaseModel):
     topic: str
     exam_board_credit: str
     reference_summary: str
-    sample_content_notice: str
+    prototype_content_notice: str
 
 
 class Note(BaseModel):
@@ -37,25 +40,25 @@ class Note(BaseModel):
     text: str
     turn: int
     concept: str | None
-    status: Literal["correct", "incorrect", "unsupported", "pending"] = "pending"
+    status: NoteStatus = "pending"
     source: Literal["teacher", "tutor"] = "teacher"
-    features: dict[str, bool | int] = Field(default_factory=dict)
+    features: dict[str, bool | int | float | str] = Field(default_factory=dict)
 
 
 class ChudProfile(BaseModel):
-    id: str
-    name: str
-    avatar: str
-    voice_id_env: str
-    description: str
-    questioning_style: str
-    base_rate: float
-    memory_span: float
-    weights: dict[str, float]
+    id: str = "chud"
+    name: str = "Chud"
+    voice_id: str = "REPLACE_WITH_ELEVENLABS_VOICE_ID"
+    avatar: str = "svg"
+    method_weights: dict[TeachingMethod, float]
+    attention_span: float
+    question_style: str
+    persona: str
+    base_rate: float = 0.18
 
 
 class ChudKnowledge(BaseModel):
-    chud_id: str
+    chud_id: str = "chud"
     retained_note_ids: list[str] = Field(default_factory=list)
     retention_by_concept: dict[str, float] = Field(default_factory=dict)
     retention_scores: dict[str, float] = Field(default_factory=dict)
@@ -71,7 +74,7 @@ class MarkResult(BaseModel):
 class Attempt(BaseModel):
     id: str
     question_id: str
-    chud_id: str
+    chud_id: str = "chud"
     answer: str
     marks: list[MarkResult]
     score: int
@@ -83,11 +86,11 @@ class Session(BaseModel):
     id: str
     pack_id: str
     mode: Mode = "TEACH"
-    chud_ids: list[str]
+    chud_id: str = "chud"
     current_question_id: str | None = None
     turn: int = 0
     notes: list[Note] = Field(default_factory=list)
-    knowledge: dict[str, ChudKnowledge] = Field(default_factory=dict)
+    knowledge: ChudKnowledge = Field(default_factory=ChudKnowledge)
     transcript: list[dict[str, Any]] = Field(default_factory=list)
     attempts: list[Attempt] = Field(default_factory=list)
     feedback: list[dict[str, Any]] = Field(default_factory=list)
@@ -118,8 +121,43 @@ class TeachResponse(BaseModel):
     transcript: str
     pipeline: list[PipelineStage]
     notes_added: list[Note]
-    replies: list[dict[str, str]]
-    knowledge: dict[str, ChudKnowledge]
+    reply_text: str
+    reply_audio_url: str
+    emotion: Emotion = "NEUTRAL"
+    knowledge: ChudKnowledge
     metrics: dict[str, Any]
     mode: Mode
 
+
+class TestResponse(BaseModel):
+    question: Question
+    attempt: Attempt
+    class_summary: dict[str, Any]
+
+
+class RememberedNote(BaseModel):
+    note: Note
+    retained: bool
+    retention: float
+    reason: str
+
+
+class BrainConcept(BaseModel):
+    concept_id: str
+    name: str
+    status: Literal["UNTAUGHT", "SHAKY", "SOLID"]
+
+
+class BrainView(BaseModel):
+    chud: ChudProfile
+    notes: list[RememberedNote]
+    coverage: list[BrainConcept]
+    understanding: float
+    last_score: dict[str, int] | None
+    show_correctness: bool = False
+
+
+class STTResponse(BaseModel):
+    text: str
+    words: list[dict[str, Any]] = Field(default_factory=list)
+    duration_ms: int = 0

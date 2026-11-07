@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from collections import Counter, defaultdict
 
 from pydantic import BaseModel
 
@@ -10,52 +9,48 @@ from ..models import Attempt, ChudKnowledge, Note, Question
 
 
 class CoachInput(BaseModel):
-    attempts: list[Attempt]
+    attempt: Attempt
     question: Question
     transcript: list[dict]
     notes: list[Note]
-    knowledge: dict[str, ChudKnowledge]
+    knowledge: ChudKnowledge
 
 
 class CoachOutput(BaseModel):
     gaps: list[dict]
     reteach_suggestions: list[str]
-    per_chud_breakdown: dict[str, dict]
+    diagnosis: list[str]
 
 
 async def run_coach(payload: CoachInput) -> CoachOutput:
     started = time.perf_counter()
-    missed = Counter()
-    reasons: dict[str, list[str]] = defaultdict(list)
-    for attempt in payload.attempts:
-        for mark in attempt.marks:
-            if not mark.awarded:
-                missed[mark.mark_point_id] += 1
-                reasons[mark.mark_point_id].append(f"{attempt.chud_id}: {mark.reason}")
     by_mark = {mark.id: mark for mark in payload.question.mark_points}
+    remembered = set(payload.knowledge.retained_note_ids)
     gaps = []
     suggestions = []
-    for mark_id, count in missed.most_common():
-        mark = by_mark[mark_id]
-        supporting_notes = [note for note in payload.notes if note.concept == mark.concept]
-        note_detail = "not taught" if not supporting_notes else f"taught {len(supporting_notes)} time(s)"
-        gaps.append(
-            {
-                "mark_point_id": mark_id,
-                "concept": mark.concept,
-                "missed_by": count,
-                "detail": f"{count}/{len(payload.attempts)} chuds missed '{mark.text}'. It was {note_detail}.",
-            }
-        )
-        suggestions.append(f"Re-teach {mark.concept}: {mark.text}. Add a reason, a concrete example, and repeat it once.")
-    breakdown = {}
-    for attempt in payload.attempts:
-        breakdown[attempt.chud_id] = {
-            "score": attempt.score,
-            "max_score": attempt.max_score,
-            "missed": [mark.mark_point_id for mark in attempt.marks if not mark.awarded],
-        }
-    output = CoachOutput(gaps=gaps, reteach_suggestions=suggestions, per_chud_breakdown=breakdown)
-    log_agent_call("coach", int((time.perf_counter() - started) * 1000), len(payload.attempts), "ok")
+    diagnosis: list[str] = []
+    for mark in payload.attempt.marks:
+        if mark.awarded:
+            continue
+        mark_point = by_mark[mark.mark_point_id]
+        concept_notes = [note for note in payload.notes if note.concept == mark_point.concept]
+        remembered_notes = [note for note in concept_notes if note.id in remembered]
+        if any(note.status == "incorrect" for note in remembered_notes):
+            code = "INCORRECT_TEACHING"
+            detail = "Chud remembered an incorrect note for this concept."
+        elif concept_notes and not remembered_notes:
+            code = "DECAY"
+            detail = "The concept was taught, but Chud did not remember it."
+        elif concept_notes:
+            code = "METHOD_MISMATCH"
+            detail = "The concept was taught, but not in a way Chud could use in the answer."
+        else:
+            code = "TEACHING_GAP"
+            detail = "The concept was not taught before the test."
+        if code not in diagnosis:
+            diagnosis.append(code)
+        gaps.append({"mark_point_id": mark.mark_point_id, "concept": mark_point.concept, "diagnosis": code, "detail": detail})
+        suggestions.append(f"Teach {mark_point.concept} again with a reason, a concrete example, and a short repeat.")
+    output = CoachOutput(gaps=gaps, reteach_suggestions=suggestions, diagnosis=diagnosis)
+    log_agent_call("coach", int((time.perf_counter() - started) * 1000), len(payload.attempt.answer), "ok")
     return output
-

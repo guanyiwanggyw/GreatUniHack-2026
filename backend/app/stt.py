@@ -13,6 +13,7 @@ from .config import env, mock_mode
 class STTResult(BaseModel):
     text: str
     words: list[dict[str, Any]] = Field(default_factory=list)
+    duration_ms: int = 0
 
 
 def _mock_words(text: str) -> list[dict[str, Any]]:
@@ -23,29 +24,38 @@ def _mock_words(text: str) -> list[dict[str, Any]]:
     return words
 
 
-async def transcribe_audio(filename: str, data: bytes, content_type: str | None = None) -> STTResult:
+async def transcribe_audio(filename: str, data: bytes, content_type: str | None = None, keyterms: list[str] | None = None) -> STTResult:
     started = time.perf_counter()
     if mock_mode():
         text = "Binary search checks the middle, then keeps the half that could contain the target."
-        result = STTResult(text=text, words=_mock_words(text))
+        result = STTResult(text=text, words=_mock_words(text), duration_ms=4200)
         log_agent_call("stt", int((time.perf_counter() - started) * 1000), len(data), "mock")
         return result
 
     api_key = env("ELEVENLABS_API_KEY")
     model = env("ELEVENLABS_STT_MODEL", "scribe_v2")
+    form: list[tuple[str, str]] = [("model_id", model), ("timestamps_granularity", "word")]
+    for term in keyterms or []:
+        form.append(("keyterms", term))
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(
             "https://api.elevenlabs.io/v1/speech-to-text",
             headers={"xi-api-key": api_key},
-            data={"model_id": model},
+            data=form,
             files={"file": (filename, data, content_type or "application/octet-stream")},
         )
         response.raise_for_status()
         payload = response.json()
+    words = payload.get("words", [])
+    duration = 0
+    if words:
+        duration = int(max(float(word.get("end", 0)) for word in words) * 1000)
     log_agent_call("stt", int((time.perf_counter() - started) * 1000), len(data), "ok")
-    return STTResult(text=payload.get("text", ""), words=payload.get("words", []))
+    return STTResult(text=payload.get("text", ""), words=words, duration_ms=duration)
 
 
-def typed_result(text: str) -> STTResult:
-    return STTResult(text=text, words=[])
-
+def typed_result(text: str, words: list[dict[str, Any]] | None = None) -> STTResult:
+    duration = 0
+    if words:
+        duration = int(max(float(word.get("end", 0)) for word in words) * 1000)
+    return STTResult(text=text, words=words or [], duration_ms=duration)

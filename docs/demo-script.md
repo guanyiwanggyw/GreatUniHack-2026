@@ -1,9 +1,8 @@
 # Demo Script
 
-1. Problem: AI answers can create an illusion of competence.
-2. Bad teaching: teach binary search vaguely and skip that the list must be sorted.
-3. Test: run the class test and show the heatmap missing the sorted-precondition mark.
-4. Feedback: show the coach tracing the miss back to the teaching.
-5. Re-teach: explain sorted data with a reason and example, then re-test.
-6. Escalate: trigger the tutor queue with repeated misses or incorrect notes, send a hint, and return to teaching.
-
+1. Problem: AI answers can make students feel fluent without understanding.
+2. Teaching: talk naturally at the whiteboard; phrases appear live and then commit into teaching segments.
+3. Chud reacts: he asks for reasons or examples and shows an emotion.
+4. Brain drawer: open Chud's brain to show remembered notes, forgotten notes and concept coverage.
+5. Test: ask Chud a question; his answer appears on the board, marks tick in, and Coach gives a reteach diagnosis.
+6. Reteach: explain the missed concept again with a reason and example, then retest to show improvement.

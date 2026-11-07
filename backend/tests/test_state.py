@@ -3,7 +3,7 @@ from app.state import IllegalTransition, transition
 
 
 def test_legal_transitions():
-    session = Session(id="s", pack_id="p", chud_ids=[])
+    session = Session(id="s", pack_id="p")
     transition(session, "TEST", "go")
     transition(session, "REVIEW", "graded")
     transition(session, "RETEACH", "missed")
@@ -12,11 +12,10 @@ def test_legal_transitions():
 
 
 def test_illegal_transition_raises():
-    session = Session(id="s", pack_id="p", chud_ids=[])
+    session = Session(id="s", pack_id="p")
     try:
         transition(session, "REVIEW", "bad")
     except IllegalTransition as exc:
         assert "TEST" in exc.allowed
     else:
         raise AssertionError("expected illegal transition")
-

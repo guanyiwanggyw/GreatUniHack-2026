@@ -2,8 +2,8 @@
   "id": "alevel-cs-algorithms",
   "subject": "A-level Computer Science",
   "topic": "Algorithms: binary search, bubble sort, recursion",
-  "exam_board_credit": "Sample content written for the prototype; replace with real past-paper content and credit the exam board.",
+  "exam_board_credit": "Prototype content written for the prototype; replace with real past-paper content and credit the exam board.",
   "reference_summary": "Binary search requires sorted data, compares the target with the middle item, discards the impossible half, and repeats until found or empty. Bubble sort compares adjacent items, swaps out-of-order pairs, and repeats passes until sorted. Recursion needs a base case and a self-call that moves toward it.",
-  "sample_content_notice": "Sample content written for the prototype."
+  "prototype_content_notice": "Prototype content written for the prototype."
 }
 
