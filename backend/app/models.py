@@ -15,15 +15,26 @@ class MarkPoint(BaseModel):
     id: str
     text: str
     concept: str
+    # Mark-scheme code such as M1 (method), A1 (accuracy), B1 (independent), P1 (process) or C1 (communication).
+    code: str = ""
+    # Expected value or wording for accuracy marks, for example "19/20" or "x = 4".
+    answer: str = ""
+    marks: int = 1
 
 
 class Question(BaseModel):
     id: str
     text: str
     marks: int
-    type: Literal["recall", "application", "edge_case"]
+    type: Literal["recall", "application", "edge_case", "calculation"] = "application"
     concepts: list[str]
     mark_points: list[MarkPoint]
+
+
+class ConceptDef(BaseModel):
+    id: str
+    name: str
+    keywords: list[str] = Field(default_factory=list)
 
 
 class ContentPack(BaseModel):
@@ -33,6 +44,19 @@ class ContentPack(BaseModel):
     exam_board_credit: str
     reference_summary: str
     prototype_content_notice: str
+    concepts: list[ConceptDef] = Field(default_factory=list)
+    # Common misconceptions the offline fact checker flags as incorrect teaching.
+    wrong_patterns: list[str] = Field(default_factory=list)
+
+
+class PastPaper(BaseModel):
+    id: str
+    pack_id: str
+    title: str
+    questions: list[Question]
+    total_marks: int = 0
+    source_files: list[str] = Field(default_factory=list)
+    created_at: float = 0
 
 
 class Note(BaseModel):
@@ -82,6 +106,28 @@ class Attempt(BaseModel):
     round: int = 1
 
 
+class PaperQuestionResult(BaseModel):
+    question_id: str
+    question_text: str
+    answer: str
+    marks: list[MarkResult]
+    score: int
+    max_score: int
+
+
+class PaperAttempt(BaseModel):
+    id: str
+    paper_id: str
+    paper_title: str
+    results: list[PaperQuestionResult]
+    score: int
+    max_score: int
+    percentage: float
+    marker: str = "heuristic"
+    summary: str = ""
+    created_at: float = 0
+
+
 class Session(BaseModel):
     id: str
     pack_id: str
@@ -97,6 +143,7 @@ class Session(BaseModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
     transitions: list[dict[str, Any]] = Field(default_factory=list)
     escalation_id: str | None = None
+    paper_attempts: list[PaperAttempt] = Field(default_factory=list)
 
 
 class Escalation(BaseModel):
@@ -127,6 +174,9 @@ class TeachResponse(BaseModel):
     knowledge: ChudKnowledge
     metrics: dict[str, Any]
     mode: Mode
+    reply_reason: str = ""
+    # Step-by-step account of what Chud learned this turn, for the learning pipeline view.
+    learning: dict[str, Any] = Field(default_factory=dict)
 
 
 class TestResponse(BaseModel):
@@ -154,6 +204,7 @@ class BrainView(BaseModel):
     coverage: list[BrainConcept]
     understanding: float
     last_score: dict[str, int] | None
+    last_paper: dict[str, Any] | None = None
     show_correctness: bool = False
 
 

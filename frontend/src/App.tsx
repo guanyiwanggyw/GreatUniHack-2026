@@ -23,9 +23,9 @@ export function App() {
               <LayoutDashboard size={20} />
               Dashboard
             </a>
-            <a href="/ingest" title="Paper ingest">
+            <a href="/ingest" title="Past papers">
               <Upload size={20} />
-              Ingest
+              Past papers
             </a>
             <a href="/tutor" title="Tutor queue">
               <Inbox size={20} />

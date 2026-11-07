@@ -12,3 +12,4 @@ build/
 backend/.generated/
 frontend/.vite/
 
+.playwright-mcp/

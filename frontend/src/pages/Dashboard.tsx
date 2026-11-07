@@ -1,20 +1,26 @@
 import { Brain, Check, Mic, Pause, Play, Send, Settings, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, Attempt, BrainView, ChudProfile, Emotion, Pack, PipelineStage, Question, Session, TeachResponse } from "../api";
+import { api, Attempt, BrainView, ChudProfile, Emotion, Pack, PaperAttempt, PastPaper, Question, Session, TeachResponse } from "../api";
 import { useBoardState } from "../features/board/useBoardState";
 import { Whiteboard } from "../features/board/Whiteboard";
 import { BrainDrawer } from "../features/chud/BrainDrawer";
-import { ChudAvatar } from "../features/chud/ChudAvatar";
+import { ChudAvatar, SMART_THRESHOLD } from "../features/chud/ChudAvatar";
 import { ExamPanel } from "../features/exam/ExamPanel";
 import { useLiveTranscription } from "../features/listening/useLiveTranscription";
+import { LearningPipeline } from "../features/pipeline/LearningPipeline";
 
 export function Dashboard() {
   const [packs, setPacks] = useState<Pack[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [papers, setPapers] = useState<PastPaper[]>([]);
+  const [paperAttempt, setPaperAttempt] = useState<PaperAttempt | null>(null);
+  const [sitting, setSitting] = useState("");
   const [profile, setProfile] = useState<ChudProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [brain, setBrain] = useState<BrainView | null>(null);
-  const [pipeline, setPipeline] = useState<PipelineStage[]>([]);
+  const [lastTeach, setLastTeach] = useState<TeachResponse | null>(null);
+  const [lastEvent, setLastEvent] = useState<"teach" | "paper" | null>(null);
+  const [teaching, setTeaching] = useState(false);
   const [typed, setTyped] = useState("");
   const [listening, setListening] = useState(false);
   const [caption, setCaption] = useState("Tap Chud to hear what he remembers.");
@@ -42,16 +48,22 @@ export function Dashboard() {
       const packId = packData.packs[0]?.id ?? "alevel-cs-algorithms";
       const questionData = await api.questions(packId);
       setQuestions(questionData.questions);
+      void loadPapers(packId);
       const stored = localStorage.getItem("teach-chud-session");
       if (stored) {
         try {
           const state = await api.getSession(stored);
-          setSession(state.session);
-          await loadBrain(state.session.id);
-          return;
+          // Sessions from another subject (for example the old algorithms pack) are replaced with a fresh one.
+          if (state.session.pack_id === packId) {
+            setSession(state.session);
+            setPaperAttempt(state.session.paper_attempts?.[state.session.paper_attempts.length - 1] ?? null);
+            await loadBrain(state.session.id);
+            return;
+          }
         } catch {
-          localStorage.removeItem("teach-chud-session");
+          /* fall through to a new session */
         }
+        localStorage.removeItem("teach-chud-session");
       }
       const created = await api.createSession(packId);
       localStorage.setItem("teach-chud-session", created.session.id);
@@ -64,6 +76,21 @@ export function Dashboard() {
       setError(err instanceof Error ? err.message : "Could not start Teach-Chud.");
     }
   }
+
+  async function loadPapers(packId = session?.pack_id ?? packs[0]?.id ?? "gcse-maths") {
+    try {
+      setPapers((await api.papers(packId)).papers);
+    } catch {
+      /* papers are optional */
+    }
+  }
+
+  // Pick up papers uploaded in another tab when the teacher comes back to the whiteboard.
+  useEffect(() => {
+    const onVisible = () => document.visibilityState === "visible" && void loadPapers();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  });
 
   async function refresh(id = session?.id) {
     if (!id) return;
@@ -81,8 +108,10 @@ export function Dashboard() {
     async (text: string, words: Array<Record<string, unknown>> = [], source: "VOICE" | "TYPED" = "VOICE") => {
       if (!session || !text.trim()) return;
       setError("");
+      setTeaching(true);
       try {
         const result = await api.teachSegment(session.id, text.trim(), source, words);
+        setTeaching(false);
         applyTeachResult(result);
         await refresh(session.id);
         if (result.reply_text) {
@@ -92,6 +121,8 @@ export function Dashboard() {
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Teaching failed.");
+      } finally {
+        setTeaching(false);
       }
     },
     [session]
@@ -114,10 +145,12 @@ export function Dashboard() {
 
   const board = useBoardState(session);
   const pack = packs.find((item) => item.id === session?.pack_id);
+  const smart = (brain?.understanding ?? 0) >= SMART_THRESHOLD || (brain?.last_paper?.percentage ?? 0) >= SMART_THRESHOLD * 100;
   const chudState = speaking ? "speaking" : live.status === "Chud thinking" ? "thinking" : listening ? "listening" : emotion === "CONFUSED" ? "confused" : emotion === "HAPPY" ? "happy" : "idle";
 
   function applyTeachResult(result: TeachResponse) {
-    setPipeline(result.pipeline);
+    setLastTeach(result);
+    setLastEvent("teach");
     setSession((previous) => (previous ? { ...previous, mode: result.mode, knowledge: result.knowledge, metrics: result.metrics, notes: [...previous.notes, ...result.notes_added] } : previous));
   }
 
@@ -169,6 +202,28 @@ export function Dashboard() {
     await refresh(session.id);
   }
 
+  async function sitPaper(paperId: string) {
+    if (!session || sitting) return;
+    setSitting(paperId);
+    setError("");
+    setCaption("Okay, I'll try the paper using only what you taught me...");
+    setEmotion("THINKING");
+    try {
+      const result = await api.sitPaper(session.id, paperId);
+      setPaperAttempt(result.attempt);
+      setLastEvent("paper");
+      setSession(result.session);
+      await loadBrain(session.id);
+      const pct = result.attempt.percentage;
+      setCaption(pct >= 70 ? `I got ${Math.round(pct)}%! You taught me well.` : pct >= 40 ? `I got ${Math.round(pct)}%. Some of it clicked, some didn't.` : `I only got ${Math.round(pct)}%. Can you teach me more?`);
+      setEmotion(pct >= 70 ? "HAPPY" : pct >= 40 ? "THINKING" : "CONFUSED");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Chud could not sit the paper.");
+    } finally {
+      setSitting("");
+    }
+  }
+
   async function reteach() {
     if (!session) return;
     await api.reteach(session.id);
@@ -182,7 +237,12 @@ export function Dashboard() {
           <Sparkles size={22} />
           Teach-Chud
         </a>
-        <span className="topic-chip">{pack?.topic ?? "Algorithms"}</span>
+        <span className="topic-chip">{pack?.subject ?? "GCSE Mathematics"}</span>
+        {brain?.last_paper && (
+          <span className="paper-chip" title={brain.last_paper.title}>
+            Last paper {Math.round(brain.last_paper.percentage)}%
+          </span>
+        )}
         <span className={`mode-badge mode-${session?.mode?.toLowerCase() ?? "teach"}`}>{session?.mode ?? "TEACH"}</span>
         <div className="understanding-ring" style={{ ["--understanding" as string]: `${Math.round((brain?.understanding ?? 0) * 100)}%` }}>
           {Math.round((brain?.understanding ?? 0) * 100)}%
@@ -191,18 +251,18 @@ export function Dashboard() {
           <summary aria-label="Settings">
             <Settings size={20} />
           </summary>
-          <a href="/ingest">Paper ingest</a>
+          <a href="/ingest">Past papers</a>
           <a href="/tutor">Tutor queue</a>
         </details>
       </header>
 
       <section className="stage">
-        <Whiteboard segments={board.segments} phrases={live.phrases} stickies={board.stickies} onEditPhrase={live.editPhrase} answer={answer} />
+        <Whiteboard segments={board.segments} phrases={live.phrases} stickies={board.stickies} onEditPhrase={live.editPhrase} answer={answer} notice={live.error} />
         <div className="chud-stage">
           <div className="speech-bubble" aria-live="polite">
             {caption}
           </div>
-          <ChudAvatar state={chudState} emotion={emotion} mouthLevel={mouthLevel} onClick={askRecap} onLongPress={() => setDrawerOpen(true)} />
+          <ChudAvatar state={chudState} emotion={emotion} mouthLevel={mouthLevel} smart={smart} onClick={askRecap} onLongPress={() => setDrawerOpen(true)} />
         </div>
       </section>
 
@@ -234,19 +294,28 @@ export function Dashboard() {
       </section>
 
       <section className="side-panels">
-        <ExamPanel questions={questions} attempt={attempt} review={review} onTest={testChud} onReteach={reteach} />
-        <section className="pipeline-panel">
-          <h2>Pipeline</h2>
-          <div className="pipeline-list">
-            {pipeline.map((stage) => (
-              <span className={`pipe-pill ${stage.status}`} key={stage.name}>
-                {stage.name}
-              </span>
-            ))}
-          </div>
-          <p aria-live="polite">{live.status}</p>
+        <ExamPanel
+          questions={questions}
+          papers={papers}
+          attempt={attempt}
+          paperAttempt={paperAttempt}
+          review={review}
+          sitting={sitting}
+          onTest={testChud}
+          onSitPaper={sitPaper}
+          onReteach={reteach}
+        />
+        <div className="pipeline-column">
+          <LearningPipeline
+            teach={lastTeach}
+            paper={paperAttempt}
+            lastEvent={lastEvent}
+            mode={session?.mode ?? "TEACH"}
+            thinking={teaching || Boolean(sitting)}
+            status={`${live.status}${live.engine ? ` · ${live.engine === "browser" ? "browser speech recognition" : "server transcription"}` : ""}`}
+          />
           {error && <p className="error">{error}</p>}
-        </section>
+        </div>
       </section>
 
       <BrainDrawer brain={brain} open={drawerOpen} onClose={() => setDrawerOpen(false)} />

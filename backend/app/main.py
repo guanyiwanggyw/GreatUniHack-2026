@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
+import io
 from pathlib import Path
+import json
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,11 +11,11 @@ from pypdf import PdfReader
 
 from .agent_logging import recent_logs
 from .agents.paper_ingest import PaperIngestInput, run_paper_ingest
-from .config import AUDIO_DIR, mock_mode
-from .content import get_questions, list_packs, pack_concepts, save_questions
+from .config import AUDIO_DIR, DEFAULT_PACK_ID, llm_available, voice_available
+from .content import concept_names, delete_paper, get_pack, get_paper, get_questions, list_packs, list_papers, save_paper, save_questions
 from .escalation import tutor_note_from_reply
 from .models import Question
-from .orchestrator import begin_reteach, brain_view, recap, review, run_test, teach_turn
+from .orchestrator import begin_reteach, brain_view, recap, review, run_test, sit_paper, teach_turn
 from .profiles import get_profile
 from .retention import recompute_knowledge
 from .session import create_session, get_escalation, get_session, list_open_escalations, save_session
@@ -34,7 +35,8 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "mock_mode": mock_mode()}
+    # mock_mode tells the frontend whether real speech-to-text is available; llm says whether agents use the AI.
+    return {"ok": True, "mock_mode": not voice_available(), "voice": voice_available(), "llm": llm_available(), "default_pack": DEFAULT_PACK_ID}
 
 
 @app.get("/api/packs")
@@ -59,7 +61,7 @@ async def pack_questions(pack_id: str):
 
 @app.post("/api/sessions")
 async def start_session(payload: dict):
-    pack_id = payload.get("pack_id", "alevel-cs-algorithms")
+    pack_id = payload.get("pack_id") or DEFAULT_PACK_ID
     session = create_session(pack_id)
     intro = "I'm Chud. Tap me any time and I'll say what I remember."
     audio_url = await synthesize_speech(intro, get_profile().voice_id, "chud")
@@ -75,7 +77,7 @@ async def start_session_compat(payload: dict):
 @app.post("/api/stt")
 async def stt(audio: UploadFile = File(...), mime: str = Form("")):
     data = await audio.read()
-    result = await transcribe_audio(audio.filename or "audio.webm", data, mime or audio.content_type, keyterms=pack_concepts("alevel-cs-algorithms"))
+    result = await transcribe_audio(audio.filename or "audio.webm", data, mime or audio.content_type, keyterms=list(concept_names(DEFAULT_PACK_ID).values()))
     return {"text": result.text, "words": result.words, "duration_ms": result.duration_ms}
 
 
@@ -169,11 +171,58 @@ async def audio(file: str):
     return Response(path.read_bytes(), media_type="audio/mpeg")
 
 
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
 @app.post("/api/ingest")
-async def ingest(paper: UploadFile = File(...), mark_scheme: UploadFile = File(...), pack_id: str = "alevel-cs-algorithms"):
-    paper_text = await _read_upload_text(paper)
-    mark_text = await _read_upload_text(mark_scheme)
-    return await run_paper_ingest(PaperIngestInput(paper_text=paper_text, mark_scheme_text=mark_text, pack_id=pack_id))
+async def ingest(paper: UploadFile = File(...), mark_scheme: UploadFile = File(...), pack_id: str = Form(DEFAULT_PACK_ID)):
+    _pack_or_404(pack_id)
+    paper_text = await _read_upload_text(paper, "past paper")
+    mark_text = await _read_upload_text(mark_scheme, "mark scheme")
+    return await run_paper_ingest(PaperIngestInput(paper_text=paper_text, mark_scheme_text=mark_text, pack_id=pack_id, paper_filename=paper.filename or ""))
+
+
+@app.get("/api/packs/{pack_id}/papers")
+async def papers(pack_id: str):
+    _pack_or_404(pack_id)
+    return {"papers": list_papers(pack_id)}
+
+
+@app.post("/api/packs/{pack_id}/papers")
+async def create_paper(pack_id: str, payload: dict):
+    _pack_or_404(pack_id)
+    questions = [Question.model_validate(item) for item in payload.get("questions", [])]
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions supplied")
+    paper = save_paper(pack_id, str(payload.get("title", "")), questions, [str(name) for name in payload.get("source_files", [])])
+    return {"paper": paper}
+
+
+@app.get("/api/packs/{pack_id}/papers/{paper_id}")
+async def paper_detail(pack_id: str, paper_id: str):
+    try:
+        return {"paper": get_paper(pack_id, paper_id)}
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Paper not found") from error
+
+
+@app.delete("/api/packs/{pack_id}/papers/{paper_id}")
+async def remove_paper(pack_id: str, paper_id: str):
+    try:
+        delete_paper(pack_id, paper_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Paper not found") from error
+    return {"ok": True}
+
+
+@app.post("/api/sessions/{session_id}/papers/{paper_id}/sit")
+async def sit(session_id: str, paper_id: str):
+    session = _session_or_404(session_id)
+    try:
+        attempt = await sit_paper(session, paper_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Paper not found for this session's subject") from error
+    return {"attempt": attempt, "session": session}
 
 
 @app.post("/api/packs/{pack_id}/questions")
@@ -236,11 +285,22 @@ def _parse_words(raw) -> list[dict]:
     return parsed if isinstance(parsed, list) else []
 
 
-async def _read_upload_text(upload: UploadFile) -> str:
+def _pack_or_404(pack_id: str):
+    try:
+        return get_pack(pack_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"Unknown subject pack {pack_id}") from error
+
+
+async def _read_upload_text(upload: UploadFile, label: str = "file") -> str:
     data = await upload.read()
-    if upload.filename and upload.filename.lower().endswith(".pdf"):
-        temp = AUDIO_DIR / f"upload-{Path(upload.filename).name}"
-        temp.write_bytes(data)
-        reader = PdfReader(str(temp))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"The {label} is larger than 25 MB.")
+    is_pdf = data[:5] == b"%PDF-" or (upload.filename or "").lower().endswith(".pdf")
+    if is_pdf:
+        try:
+            reader = PdfReader(io.BytesIO(data))
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as error:  # noqa: BLE001 - pypdf raises many error types for bad files
+            raise HTTPException(status_code=400, detail=f"Could not read the {label} PDF: {error}") from error
     return data.decode("utf-8", errors="ignore")

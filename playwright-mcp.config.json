@@ -1,0 +1,14 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "launchOptions": {
+      "channel": "chrome",
+      "args": ["--autoplay-policy=no-user-gesture-required"]
+    },
+    "contextOptions": {
+      "permissions": ["microphone"]
+    },
+    "initScript": ["e2e/fake-microphone.js"]
+  },
+  "outputDir": ".playwright-mcp"
+}
