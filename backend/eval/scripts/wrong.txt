@@ -1,0 +1,6 @@
+Binary search works on any list and does not need to be sorted.
+You can choose a random place instead of the middle.
+If it is not there, keep searching forever.
+Bubble sort is always fastest and does not need adjacent comparisons.
+Recursion never needs a base case because it stops by itself.
+

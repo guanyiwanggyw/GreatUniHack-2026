@@ -1,0 +1,2 @@
+"""Teach-Chud backend package."""
+

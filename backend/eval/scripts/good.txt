@@ -1,0 +1,12 @@
+Binary search needs the list to be sorted first because the comparison only lets us rule out a half if the order is reliable.
+For example, in [3, 8, 12, 21, 30], first check the middle item, then compare the target with it.
+If the target is bigger, discard the left half; if it is smaller, discard the right half.
+Repeat the midpoint step until the item is found or the search interval is empty.
+If the list is empty or the item is not found, stop and report not found.
+Repeat the key rule: binary search only works because the list is sorted.
+Bubble sort compares adjacent items, then swaps adjacent items that are out of order.
+For example, in [3, 1, 2], compare 3 and 1, swap them, then continue along the list.
+Repeat passes through the list so larger items move to the end, and stop when a pass makes no swaps.
+Recursion calls itself, but it needs a base case because otherwise it may recurse forever or crash.
+Each recursive call should move closer to the base case, so repeat that base-case check every time.
+

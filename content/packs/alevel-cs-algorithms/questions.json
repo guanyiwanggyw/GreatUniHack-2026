@@ -1,0 +1,69 @@
+[
+  {
+    "id": "q1",
+    "text": "Describe how a binary search finds an item in a list.",
+    "marks": 4,
+    "type": "recall",
+    "concepts": ["sorted_precondition", "midpoint", "halving", "termination"],
+    "mark_points": [
+      {"id": "q1m1", "text": "List must be sorted before the search begins", "concept": "sorted_precondition"},
+      {"id": "q1m2", "text": "Compare the target with the middle item", "concept": "midpoint"},
+      {"id": "q1m3", "text": "Discard the half of the list that cannot contain the target", "concept": "halving"},
+      {"id": "q1m4", "text": "Repeat until the item is found or the search interval is empty", "concept": "termination"}
+    ]
+  },
+  {
+    "id": "q2",
+    "text": "A sorted list contains [3, 8, 12, 21, 30, 45]. Trace a binary search for 21.",
+    "marks": 5,
+    "type": "application",
+    "concepts": ["sorted_precondition", "midpoint", "halving", "termination"],
+    "mark_points": [
+      {"id": "q2m1", "text": "Recognises that the list is already sorted", "concept": "sorted_precondition"},
+      {"id": "q2m2", "text": "Starts by checking the middle item or one of the two central items", "concept": "midpoint"},
+      {"id": "q2m3", "text": "Chooses the correct half after comparison", "concept": "halving"},
+      {"id": "q2m4", "text": "Repeats the midpoint comparison in the remaining interval", "concept": "midpoint"},
+      {"id": "q2m5", "text": "Stops when 21 is found", "concept": "termination"}
+    ]
+  },
+  {
+    "id": "q3",
+    "text": "Describe the main steps of bubble sort.",
+    "marks": 4,
+    "type": "recall",
+    "concepts": ["bubble_adjacent_compare", "bubble_swap", "bubble_passes", "termination"],
+    "mark_points": [
+      {"id": "q3m1", "text": "Compare adjacent pairs of items", "concept": "bubble_adjacent_compare"},
+      {"id": "q3m2", "text": "Swap adjacent items that are in the wrong order", "concept": "bubble_swap"},
+      {"id": "q3m3", "text": "Repeat passes through the list so larger items move to the end", "concept": "bubble_passes"},
+      {"id": "q3m4", "text": "Stop when a pass makes no swaps or the list is sorted", "concept": "termination"}
+    ]
+  },
+  {
+    "id": "q4",
+    "text": "Explain why a recursive algorithm needs a base case.",
+    "marks": 4,
+    "type": "recall",
+    "concepts": ["recursion_base_case", "recursion_self_call", "termination"],
+    "mark_points": [
+      {"id": "q4m1", "text": "A recursive algorithm calls itself", "concept": "recursion_self_call"},
+      {"id": "q4m2", "text": "A base case gives a condition where recursion stops", "concept": "recursion_base_case"},
+      {"id": "q4m3", "text": "Each recursive call should move closer to the base case", "concept": "termination"},
+      {"id": "q4m4", "text": "Without a base case the algorithm may recurse forever or crash", "concept": "recursion_base_case"}
+    ]
+  },
+  {
+    "id": "q5",
+    "text": "State two edge cases for binary search and how the algorithm handles them.",
+    "marks": 4,
+    "type": "edge_case",
+    "concepts": ["edge_empty", "edge_not_found", "sorted_precondition", "termination"],
+    "mark_points": [
+      {"id": "q5m1", "text": "An empty list has no middle item to inspect", "concept": "edge_empty"},
+      {"id": "q5m2", "text": "The algorithm should report not found when the interval is empty", "concept": "edge_not_found"},
+      {"id": "q5m3", "text": "The sorted precondition still applies for binary search", "concept": "sorted_precondition"},
+      {"id": "q5m4", "text": "The loop or recursion terminates when the search range is empty", "concept": "termination"}
+    ]
+  }
+]
+

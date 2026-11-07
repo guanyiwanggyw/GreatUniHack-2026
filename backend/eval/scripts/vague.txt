@@ -1,0 +1,5 @@
+Binary search is a quick way to find things.
+You look somewhere around the middle and keep going until you get the item.
+Bubble sort keeps sorting the list with swaps.
+Recursion is when a function does the same thing again.
+
