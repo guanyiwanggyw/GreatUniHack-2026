@@ -7,16 +7,19 @@ export function Whiteboard({
   stickies,
   onEditPhrase,
   answer,
+  notice,
 }: {
   segments: BoardSegment[];
   phrases: LivePhrase[];
   stickies: StickyNote[];
   onEditPhrase: (seq: number, text: string) => void;
   answer: string;
+  notice?: string;
 }) {
   return (
     <section className="whiteboard" aria-label="Whiteboard">
       <div className="board-writing">
+        {notice && <p className="board-notice" role="alert">{notice}</p>}
         {segments.map((segment) => (
           <div className="segment" key={segment.id}>
             <p>{segment.text}</p>
@@ -27,6 +30,7 @@ export function Whiteboard({
             key={phrase.seq}
             className={`live-phrase ${phrase.pending ? "pending" : ""}`}
             value={phrase.text}
+            readOnly={phrase.pending}
             onChange={(event) => onEditPhrase(phrase.seq, event.target.value)}
             aria-label="Editable live transcription phrase"
           />

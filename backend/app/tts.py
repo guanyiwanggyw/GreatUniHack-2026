@@ -6,7 +6,7 @@ import time
 import httpx
 
 from .agent_logging import log_agent_call
-from .config import AUDIO_DIR, env, mock_mode
+from .config import AUDIO_DIR, env, voice_available
 
 MOCK_MP3 = b"ID3\x04\x00\x00\x00\x00\x00\x15Teach-Chud mock audio"
 
@@ -16,7 +16,7 @@ async def synthesize_speech(text: str, voice_id: str | None, chud_id: str) -> st
     digest = hashlib.sha1(f"{chud_id}:{text}".encode()).hexdigest()[:16]
     filename = f"{chud_id}-{digest}.mp3"
     path = AUDIO_DIR / filename
-    if mock_mode():
+    if not voice_available():
         path.write_bytes(MOCK_MP3)
         log_agent_call("tts", int((time.perf_counter() - started) * 1000), len(text), "mock")
         return f"/api/audio/{filename}"

@@ -1,0 +1,69 @@
+[
+  {
+    "id": "gm-q1",
+    "text": "Work out 3/4 + 1/5. Give your answer as a fraction.",
+    "marks": 2,
+    "type": "calculation",
+    "concepts": ["fractions"],
+    "mark_points": [
+      {"id": "gm-q1-m1", "code": "M1", "text": "Writes both fractions over a common denominator, e.g. 15/20 and 4/20", "concept": "fractions", "answer": "", "marks": 1},
+      {"id": "gm-q1-m2", "code": "A1", "text": "19/20 cao", "concept": "fractions", "answer": "19/20", "marks": 1}
+    ]
+  },
+  {
+    "id": "gm-q2",
+    "text": "Solve 5x − 7 = 18.",
+    "marks": 2,
+    "type": "calculation",
+    "concepts": ["linear_equations"],
+    "mark_points": [
+      {"id": "gm-q2-m1", "code": "M1", "text": "Adds 7 to both sides, 5x = 25", "concept": "linear_equations", "answer": "", "marks": 1},
+      {"id": "gm-q2-m2", "code": "A1", "text": "x = 5", "concept": "linear_equations", "answer": "x = 5", "marks": 1}
+    ]
+  },
+  {
+    "id": "gm-q3",
+    "text": "A right-angled triangle has shorter sides 6 cm and 8 cm. Work out the length of the hypotenuse.",
+    "marks": 3,
+    "type": "calculation",
+    "concepts": ["pythagoras"],
+    "mark_points": [
+      {"id": "gm-q3-m1", "code": "M1", "text": "Squares and adds the two shorter sides, 6² + 8² = 100", "concept": "pythagoras", "answer": "", "marks": 1},
+      {"id": "gm-q3-m2", "code": "M1", "text": "Square roots the sum, √100", "concept": "pythagoras", "answer": "", "marks": 1},
+      {"id": "gm-q3-m3", "code": "A1", "text": "10 cm", "concept": "pythagoras", "answer": "10", "marks": 1}
+    ]
+  },
+  {
+    "id": "gm-q4",
+    "text": "Share £72 in the ratio 5 : 3.",
+    "marks": 2,
+    "type": "calculation",
+    "concepts": ["ratio_proportion"],
+    "mark_points": [
+      {"id": "gm-q4-m1", "code": "M1", "text": "Finds one part, 72 ÷ 8 = 9", "concept": "ratio_proportion", "answer": "", "marks": 1},
+      {"id": "gm-q4-m2", "code": "A1", "text": "£45 and £27", "concept": "ratio_proportion", "answer": "45 and 27", "marks": 1}
+    ]
+  },
+  {
+    "id": "gm-q5",
+    "text": "Write down the nth term of the sequence 4, 7, 10, 13, ...",
+    "marks": 2,
+    "type": "calculation",
+    "concepts": ["sequences"],
+    "mark_points": [
+      {"id": "gm-q5-m1", "code": "M1", "text": "Identifies the common difference of 3, giving 3n", "concept": "sequences", "answer": "", "marks": 1},
+      {"id": "gm-q5-m2", "code": "A1", "text": "3n + 1", "concept": "sequences", "answer": "3n + 1", "marks": 1}
+    ]
+  },
+  {
+    "id": "gm-q6",
+    "text": "A bag has 3 red and 5 blue counters. One counter is taken at random. Work out the probability that it is not red.",
+    "marks": 2,
+    "type": "calculation",
+    "concepts": ["probability"],
+    "mark_points": [
+      {"id": "gm-q6-m1", "code": "M1", "text": "Uses P(not red) = 1 − P(red) or counts the blue counters out of 8", "concept": "probability", "answer": "", "marks": 1},
+      {"id": "gm-q6-m2", "code": "A1", "text": "5/8 oe", "concept": "probability", "answer": "5/8", "marks": 1}
+    ]
+  }
+]

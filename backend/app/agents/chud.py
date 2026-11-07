@@ -5,6 +5,7 @@ import time
 from pydantic import BaseModel
 
 from ..agent_logging import log_agent_call
+from ..llm import LLMUnavailable, llm
 from ..models import ChudProfile, Emotion, Note, Question
 
 
@@ -18,6 +19,8 @@ class ChudInput(BaseModel):
 class ChudOutput(BaseModel):
     text: str
     emotion: Emotion = "NEUTRAL"
+    # Why Chud replied this way, shown to the teacher in the learning pipeline.
+    reason: str = ""
 
 
 class ChudTestInput(BaseModel):
@@ -54,8 +57,33 @@ async def run_chud(payload: ChudInput) -> ChudOutput:
     return output
 
 
+TEST_TAKER_PROMPT = (
+    "You are Chud, a student sitting an exam question. You know ONLY the remembered notes below, which are what your "
+    "teacher taught you. Answer the question by applying those notes, showing your working step by step. "
+    "Never use maths or facts that are not in the notes, even if you know them. If the notes do not cover what the "
+    "question needs, write what you can and then say \"I don't know the rest.\" If the notes contain a mistake, "
+    "follow the mistake, because that is what you were taught. Keep the answer under 120 words.\n\n"
+    "REMEMBERED NOTES:\n{notes}"
+)
+
+
 async def run_test_taker(payload: ChudTestInput) -> ChudTestOutput:
     started = time.perf_counter()
+    if payload.retained_notes:
+        try:
+            notes = "\n".join(f"- {note.text}" for note in payload.retained_notes)
+            text = await llm(
+                TEST_TAKER_PROMPT.replace("{notes}", notes),
+                [{"role": "user", "content": f"QUESTION ({payload.question.marks} marks):\n{payload.question.text}"}],
+                agent="chud_test_taker_llm",
+            )
+            answer = str(text).strip()
+            log_agent_call("chud_test_taker", int((time.perf_counter() - started) * 1000), len(answer), "llm")
+            return ChudTestOutput(answer=answer or "I don't know.")
+        except LLMUnavailable:
+            pass
+        except Exception as error:  # noqa: BLE001 - fall back to the offline answer
+            log_agent_call("chud_test_taker", int((time.perf_counter() - started) * 1000), 0, "llm_error", str(error)[:200])
     relevant = [note for note in payload.retained_notes if note.concept in payload.question.concepts]
     if not relevant:
         answer = "I do not really know from my notes."
@@ -69,15 +97,15 @@ async def run_test_taker(payload: ChudTestInput) -> ChudTestOutput:
 
 def _ask(notes: list[Note]) -> ChudOutput:
     if not notes:
-        return ChudOutput(text="I am not sure yet. Can you give me an example?", emotion="CURIOUS")
+        return ChudOutput(text="I am not sure yet. Can you give me an example?", emotion="CURIOUS", reason="Nothing has stuck in Chud's memory yet, so he asks for an example.")
     newest = notes[-1]
     if newest.status == "incorrect":
-        return ChudOutput(text="Wait, that feels muddled in my notes. Can you explain why?", emotion="CONFUSED")
+        return ChudOutput(text="Wait, that feels muddled in my notes. Can you explain why?", emotion="CONFUSED", reason="Your latest point contradicts the reference, so Chud is confused.")
     if not newest.features.get("has_reason"):
-        return ChudOutput(text="I heard that bit, but wait, why does it work?", emotion="CURIOUS")
+        return ChudOutput(text="I heard that bit, but wait, why does it work?", emotion="CURIOUS", reason="You said what to do but not why, so Chud asks for the reason.")
     if not newest.features.get("has_example") and newest.features.get("method") != "WORKED_EXAMPLE":
-        return ChudOutput(text="I think I get the idea. Could you show me one example?", emotion="CURIOUS")
-    return ChudOutput(text=f"That clicked: {newest.text[:120]}.", emotion="HAPPY")
+        return ChudOutput(text="I think I get the idea. Could you show me one example?", emotion="CURIOUS", reason="There was a reason but no worked example, so Chud asks for one.")
+    return ChudOutput(text=f"That clicked: {newest.text[:120]}.", emotion="HAPPY", reason="Your point had a reason and an example, so it clicked.")
 
 
 def _recap(notes: list[Note]) -> ChudOutput:

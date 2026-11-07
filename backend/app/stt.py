@@ -7,7 +7,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .agent_logging import log_agent_call
-from .config import env, mock_mode
+from .config import env, voice_available
 
 
 class STTResult(BaseModel):
@@ -26,7 +26,7 @@ def _mock_words(text: str) -> list[dict[str, Any]]:
 
 async def transcribe_audio(filename: str, data: bytes, content_type: str | None = None, keyterms: list[str] | None = None) -> STTResult:
     started = time.perf_counter()
-    if mock_mode():
+    if not voice_available():
         text = "Binary search checks the middle, then keeps the half that could contain the target."
         result = STTResult(text=text, words=_mock_words(text), duration_ms=4200)
         log_agent_call("stt", int((time.perf_counter() - started) * 1000), len(data), "mock")

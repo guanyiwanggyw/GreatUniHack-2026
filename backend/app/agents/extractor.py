@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from ..agent_logging import log_agent_call
+from ..content import best_concept
 from ..models import Note
 
 
@@ -14,6 +15,8 @@ class ExtractorInput(BaseModel):
     text: str
     turn: int
     pack_concepts: list[str]
+    # Topic keywords from the content pack; when given they replace the built-in algorithms keywords.
+    concept_keywords: dict[str, list[str]] = {}
 
 
 class ExtractorOutput(BaseModel):
@@ -37,10 +40,11 @@ CONCEPT_KEYWORDS: dict[str, tuple[str, ...]] = {
 
 async def run_extractor(payload: ExtractorInput) -> ExtractorOutput:
     started = time.perf_counter()
-    chunks = [chunk.strip() for chunk in re.split(r"[.\n;]+", payload.text) if chunk.strip()]
+    # Split on sentence ends, not on decimal points, so "0.85" stays one number.
+    chunks = [chunk.strip() for chunk in re.split(r"\.(?=\s|$)|[\n;]+", payload.text) if chunk.strip()]
     notes: list[Note] = []
     for index, chunk in enumerate(chunks):
-        concept = detect_concept(chunk, payload.pack_concepts)
+        concept = detect_concept(chunk, payload.pack_concepts, payload.concept_keywords)
         if not concept and len(chunks) > 1:
             continue
         words = chunk.split()
@@ -70,7 +74,11 @@ async def run_extractor(payload: ExtractorInput) -> ExtractorOutput:
     return ExtractorOutput(notes=notes)
 
 
-def detect_concept(text: str, allowed: list[str]) -> str | None:
+def detect_concept(text: str, allowed: list[str], concept_keywords: dict[str, list[str]] | None = None) -> str | None:
+    if concept_keywords:
+        found = best_concept(text, concept_keywords, allowed)
+        if found:
+            return found
     lowered = text.lower()
     for concept, keywords in CONCEPT_KEYWORDS.items():
         if concept in allowed and any(keyword in lowered for keyword in keywords):

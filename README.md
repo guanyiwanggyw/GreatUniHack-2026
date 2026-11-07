@@ -54,3 +54,9 @@ The included A-level Computer Science algorithms pack is prototype content writt
 make test
 make eval
 ```
+
+## Browser Testing With Playwright MCP
+
+`.mcp.json` registers the Playwright MCP server for Claude Code. Open Claude Code from this folder and approve the `playwright` server when asked.
+
+The MCP browser uses `playwright-mcp.config.json`. Its init script, `e2e/fake-microphone.js`, replaces the microphone with a recorded teaching clip: about 11 seconds of a binary-search explanation, then 5 seconds of silence, on loop. That lets Claude test the voice flow without a real microphone. Screenshots and other MCP output go to `.playwright-mcp/`, which is gitignored.

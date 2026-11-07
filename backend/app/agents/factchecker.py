@@ -13,6 +13,10 @@ class FactCheckerInput(BaseModel):
     notes: list[Note]
     reference: str
     mark_points: list[MarkPoint]
+    # Concepts the pack covers; notes on these count as supported even if the current question does not test them.
+    known_concepts: list[str] = []
+    # Pack-specific misconceptions, checked alongside the built-in ones.
+    wrong_patterns: list[str] = []
 
 
 class FactCheckItem(BaseModel):
@@ -45,13 +49,14 @@ WRONG_PATTERNS = (
 async def run_factchecker(payload: FactCheckerInput) -> FactCheckerOutput:
     started = time.perf_counter()
     checks: list[FactCheckItem] = []
-    known_concepts = {mark.concept for mark in payload.mark_points}
+    known_concepts = {mark.concept for mark in payload.mark_points} | set(payload.known_concepts)
+    patterns = (*WRONG_PATTERNS, *(pattern.lower() for pattern in payload.wrong_patterns))
     for note in payload.notes:
         lowered = note.text.lower()
-        if any(pattern in lowered for pattern in WRONG_PATTERNS):
+        if any(pattern in lowered for pattern in patterns):
             checks.append(FactCheckItem(note_id=note.id, status="incorrect", reason="Contradicts the reference content."))
         elif note.concept is None or note.concept not in known_concepts:
-            checks.append(FactCheckItem(note_id=note.id, status="unsupported", reason="No matching concept in this question's mark scheme."))
+            checks.append(FactCheckItem(note_id=note.id, status="unsupported", reason="No matching topic in this subject."))
         else:
             checks.append(FactCheckItem(note_id=note.id, status="correct", reason="Matches the reference summary."))
     log_agent_call("factchecker", int((time.perf_counter() - started) * 1000), sum(len(n.text) for n in payload.notes), "ok")
